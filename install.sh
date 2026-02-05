@@ -74,14 +74,35 @@ if match:
     target = candidate
 
 text = target.read_text()
-pattern1 = r'!F\\.app\\.isPackaged\\)\\{const ([A-Za-z_$][\\w$]*)=new URL\\(_B\\(\\)\\);'
-m1 = re.search(pattern1, text)
-if not m1:
+
+def patch_dev_server_guard(src: str) -> str:
+    fn = None
+    m = re.search(r'function (\\w+)\\(\\)\\{return process\\.env\\.ELECTRON_RENDERER_URL\\|\\|\\w+\\}', src)
+    if m:
+        fn = m.group(1)
+    patterns = []
+    if fn:
+        patterns.extend([fr'new URL\\({fn}\\(\\)\\)', fr'new URL\\({fn}\\)'])
+    patterns.extend([r'new URL\\(_B\\(\\)\\)', r'new URL\\(_B\\)'])
+    for pat in patterns:
+        m2 = re.search(pat, src)
+        if not m2:
+            continue
+        window_start = max(0, m2.start() - 400)
+        window_end = min(len(src), m2.end() + 400)
+        window = src[window_start:window_end]
+        needle = '!F.app.isPackaged'
+        idx = window.rfind(needle)
+        if idx == -1:
+            continue
+        abs_idx = window_start + idx
+        replacement = '!F.app.isPackaged&&process.env.ELECTRON_RENDERER_URL'
+        if src[abs_idx:abs_idx+len(replacement)] == replacement:
+            return src
+        return src[:abs_idx] + replacement + src[abs_idx+len(needle):]
     raise SystemExit("patch pattern1 not found in main entry")
-old = m1.group(0)
-var = m1.group(1)
-new = f'!F.app.isPackaged&&process.env.ELECTRON_RENDERER_URL){{const {var}=new URL(_B());'
-text = text.replace(old, new, 1)
+
+text = patch_dev_server_guard(text)
 
 pattern2a = r'if\\(yl\\)\\{([A-Za-z_$][\\w$]*)\\.markAppQuitting\\(\\);return\\}'
 m2 = re.search(pattern2a, text)
