@@ -1,0 +1,5 @@
+.DS_Store
+work/
+codex-app/
+*.zip
+node_modules/
