@@ -20,7 +20,7 @@ mkdir -p "$WORK" "$OUT"
 DMG_PATH="$WORK/Codex.dmg"
 if [[ "$DMG_SRC" =~ ^https?:// ]]; then
   echo "Downloading DMG..."
-  curl -L "$DMG_SRC" -o "$DMG_PATH"
+  curl -fL "$DMG_SRC" -o "$DMG_PATH"
 else
   cp "$DMG_SRC" "$DMG_PATH"
 fi
@@ -34,6 +34,7 @@ hdiutil attach "$DMG_PATH" -nobrowse -readonly
 
 # Copy app bundle
 cp -R "$MOUNT_POINT/Codex.app" "$WORK/Codex.app"
+chmod -R u+w "$WORK/Codex.app"
 hdiutil detach "$MOUNT_POINT"
 
 # Extract app.asar
@@ -41,23 +42,90 @@ ASAR_EXTRACT="$WORK/app-extract"
 rm -rf "$ASAR_EXTRACT"
 mkdir -p "$ASAR_EXTRACT"
 
+ASAR_CMD="asar"
 if ! command -v asar >/dev/null 2>&1; then
-  npm i -g asar
+  ASAR_TOOLS="$WORK/asar-tools"
+  mkdir -p "$ASAR_TOOLS"
+  if [[ ! -x "$ASAR_TOOLS/node_modules/.bin/asar" ]]; then
+    (cd "$ASAR_TOOLS" && npm init -y >/dev/null && npm i --no-save asar)
+  fi
+  ASAR_CMD="$ASAR_TOOLS/node_modules/.bin/asar"
 fi
 
-asar extract "$WORK/Codex.app/Contents/Resources/app.asar" "$ASAR_EXTRACT"
+"$ASAR_CMD" extract "$WORK/Codex.app/Contents/Resources/app.asar" "$ASAR_EXTRACT"
 
-# Patch main.js (avoid dev server + zt init guard)
+# Patch main entry (avoid dev server; guard markAppQuitting)
 python3 - <<PY
 from pathlib import Path
-path = Path("$ASAR_EXTRACT/.vite/build/main.js")
-if not path.exists():
-    raise SystemExit(f"main.js not found at {path}")
-text = path.read_text()
-text = text.replace('!F.app.isPackaged){const G=new URL(dB());', '!F.app.isPackaged&&process.env.ELECTRON_RENDERER_URL){const G=new URL(dB());', 1)
-text = text.replace('El=!0,zt.markAppQuitting()});', 'El=!0,typeof zt==\"undefined\"||zt.markAppQuitting()});', 1)
-path.write_text(text)
-print("patched main.js")
+import re
+
+build_dir = Path("$ASAR_EXTRACT/.vite/build")
+main_stub = build_dir / "main.js"
+if not main_stub.exists():
+    raise SystemExit(f"main.js not found at {main_stub}")
+
+target = main_stub
+stub_text = main_stub.read_text()
+match = re.search(r'require\(["\']\./(main-[^"\']+\.js)["\']\)', stub_text)
+if match:
+    candidate = build_dir / match.group(1)
+    if not candidate.exists():
+        raise SystemExit(f"referenced main entry not found: {candidate}")
+    target = candidate
+
+text = target.read_text()
+
+def patch_dev_server_guard(src: str) -> str:
+    fn = None
+    m = re.search(r'function (\\w+)\\(\\)\\{return process\\.env\\.ELECTRON_RENDERER_URL\\|\\|\\w+\\}', src)
+    if m:
+        fn = m.group(1)
+    patterns = []
+    if fn:
+        patterns.extend([fr'new URL\\({fn}\\(\\)\\)', fr'new URL\\({fn}\\)'])
+    patterns.extend([r'new URL\\(_B\\(\\)\\)', r'new URL\\(_B\\)'])
+    for pat in patterns:
+        m2 = re.search(pat, src)
+        if not m2:
+            continue
+        window_start = max(0, m2.start() - 400)
+        window_end = min(len(src), m2.end() + 400)
+        window = src[window_start:window_end]
+        needle = '!F.app.isPackaged'
+        idx = window.rfind(needle)
+        if idx == -1:
+            continue
+        abs_idx = window_start + idx
+        replacement = '!F.app.isPackaged&&process.env.ELECTRON_RENDERER_URL'
+        if src[abs_idx:abs_idx+len(replacement)] == replacement:
+            return src
+        return src[:abs_idx] + replacement + src[abs_idx+len(needle):]
+    raise SystemExit("patch pattern1 not found in main entry")
+
+text = patch_dev_server_guard(text)
+
+pattern2a = r'if\\(yl\\)\\{([A-Za-z_$][\\w$]*)\\.markAppQuitting\\(\\);return\\}'
+m2 = re.search(pattern2a, text)
+if m2:
+    var = m2.group(1)
+    old = m2.group(0)
+    new = f'if(yl){{typeof {var}==\"undefined\"||{var}.markAppQuitting();return}}'
+    text = text.replace(old, new, 1)
+else:
+    print("patch pattern2a not found; skipping")
+
+pattern2b = r'yl=!0,([A-Za-z_$][\\w$]*)\\.markAppQuitting\\(\\)'
+m3 = re.search(pattern2b, text)
+if m3:
+    var = m3.group(1)
+    old = m3.group(0)
+    new = f'yl=!0,typeof {var}==\"undefined\"||{var}.markAppQuitting()'
+    text = text.replace(old, new, 1)
+else:
+    print("patch pattern2b not found; skipping")
+
+target.write_text(text)
+print(f"patched {target}")
 PY
 
 # Rebuild native modules for Electron x64
@@ -65,19 +133,18 @@ REBUILD="$WORK/rebuild"
 rm -rf "$REBUILD"
 mkdir -p "$REBUILD"
 cd "$REBUILD"
+unset npm_config_runtime npm_config_target npm_config_arch npm_config_disturl
 npm init -y >/dev/null
-npm i --no-save better-sqlite3@12.4.6 node-pty@1.1.0
+npm i --no-save better-sqlite3@12.4.6 node-pty@1.1.0 node-gyp@12.2.0
+NODE_GYP="$REBUILD/node_modules/.bin/node-gyp"
 
 # better-sqlite3 (Electron)
-export npm_config_runtime=electron
-export npm_config_target="$ELECTRON_VERSION"
-export npm_config_arch=x64
-export npm_config_disturl=https://electronjs.org/headers
-npm rebuild better-sqlite3 || true
+cd "$REBUILD/node_modules/better-sqlite3"
+"$NODE_GYP" rebuild --release --runtime=electron --target="$ELECTRON_VERSION" --arch=x64 --dist-url=https://electronjs.org/headers
 
 # node-pty (Electron)
 cd "$REBUILD/node_modules/node-pty"
-npx node-gyp rebuild --release --runtime=electron --target="$ELECTRON_VERSION" --arch=x64 --dist-url=https://electronjs.org/headers
+"$NODE_GYP" rebuild --release --runtime=electron --target="$ELECTRON_VERSION" --arch=x64 --dist-url=https://electronjs.org/headers
 
 # Inject rebuilt modules into asar extract
 mkdir -p "$ASAR_EXTRACT/node_modules/better-sqlite3/build/Release"
@@ -98,14 +165,14 @@ truncate -s 0 "$ASAR_EXTRACT/native/sparkle.node" || true
 
 # Pack asar (unpack native .node files)
 cd "$ROOT"
-asar pack "$ASAR_EXTRACT" "$WORK/Codex.app/Contents/Resources/app.asar" --unpack "**/*.node"
+"$ASAR_CMD" pack "$ASAR_EXTRACT" "$WORK/Codex.app/Contents/Resources/app.asar" --unpack "**/*.node"
 
 # Prepare Electron x64 bundle
 ELECTRON_DIR="$WORK/electron"
 rm -rf "$ELECTRON_DIR"
 mkdir -p "$ELECTRON_DIR"
 cd "$ELECTRON_DIR"
-curl -L "$ELECTRON_URL" -o electron.zip
+curl -fL "$ELECTRON_URL" -o electron.zip
 unzip -q electron.zip
 
 # Build final app
@@ -118,8 +185,11 @@ cp -R "$WORK/Codex.app/Contents/Resources/app.asar.unpacked" "$OUT/Codex.app/Con
 cp -R "$WORK/Codex.app/Contents/Resources/native" "$OUT/Codex.app/Contents/Resources/"
 
 # Copy Codex CLI (optional)
-if command -v codex >/dev/null 2>&1; then
-  cp "$(command -v codex)" "$OUT/Codex.app/Contents/Resources/codex"
+CODEX_BIN="$(command -v codex || true)"
+if [[ -n "$CODEX_BIN" ]]; then
+  if ! install -m 755 "$CODEX_BIN" "$OUT/Codex.app/Contents/Resources/codex"; then
+    echo "Warning: failed to copy Codex CLI into app bundle from $CODEX_BIN (continuing)."
+  fi
 fi
 
 # Icon + Info.plist
