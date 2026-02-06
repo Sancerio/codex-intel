@@ -16,6 +16,36 @@ fi
 
 mkdir -p "$WORK" "$OUT"
 
+resolve_x64_codex_cli() {
+  local codex_cmd="$1"
+  local resolved=""
+  resolved="$(python3 - "$codex_cmd" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+)"
+
+  local candidates=("$resolved")
+  if [[ "$resolved" == *.js ]]; then
+    local package_root
+    package_root="$(cd "$(dirname "$resolved")/.." && pwd)"
+    candidates+=("$package_root/vendor/x86_64-apple-darwin/codex/codex")
+  fi
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    [[ -f "$candidate" ]] || continue
+    if file "$candidate" | grep -q "x86_64"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 # Fetch DMG
 DMG_PATH="$WORK/Codex.dmg"
 if [[ "$DMG_SRC" =~ ^https?:// ]]; then
@@ -196,16 +226,37 @@ cp "$WORK/Codex.app/Contents/Resources/app.asar" "$OUT/Codex.app/Contents/Resour
 cp -R "$WORK/Codex.app/Contents/Resources/app.asar.unpacked" "$OUT/Codex.app/Contents/Resources/"
 cp -R "$WORK/Codex.app/Contents/Resources/native" "$OUT/Codex.app/Contents/Resources/"
 
-# Copy Codex CLI (optional)
-CODEX_BIN="$(command -v codex || true)"
-if [[ -n "$CODEX_BIN" ]]; then
-  if ! install -m 755 "$CODEX_BIN" "$OUT/Codex.app/Contents/Resources/codex"; then
-    echo "Warning: failed to copy Codex CLI into app bundle from $CODEX_BIN (continuing)."
+# Copy Codex CLI binary (needed for Intel because bundled one is arm64-only)
+CODEX_CMD="$(command -v codex || true)"
+if [[ -n "$CODEX_CMD" ]]; then
+  if CODEX_BIN="$(resolve_x64_codex_cli "$CODEX_CMD")"; then
+    if ! install -m 755 "$CODEX_BIN" "$OUT/Codex.app/Contents/Resources/codex"; then
+      echo "Warning: failed to copy x86_64 Codex CLI into app bundle from $CODEX_BIN (continuing)."
+    fi
+  else
+    echo "Warning: found codex at $CODEX_CMD but could not resolve an x86_64 binary; leaving bundled CLI unchanged."
   fi
+else
+  echo "Warning: codex not found in PATH; leaving bundled CLI unchanged."
 fi
 
 # Icon + Info.plist
 cp "$WORK/Codex.app/Contents/Resources/electron.icns" "$OUT/Codex.app/Contents/Resources/electron.icns"
-/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Codex" -c "Set :CFBundleName Codex" "$OUT/Codex.app/Contents/Info.plist"
+
+# Rename Electron binary to Codex (required for app.isPackaged to return true)
+mv "$OUT/Codex.app/Contents/MacOS/Electron" "$OUT/Codex.app/Contents/MacOS/Codex"
+
+# Remove default_app.asar as we have our own app.asar
+rm -f "$OUT/Codex.app/Contents/Resources/default_app.asar"
+
+# Update Info.plist
+/usr/libexec/PlistBuddy \
+  -c "Set :CFBundleDisplayName Codex" \
+  -c "Set :CFBundleName Codex" \
+  -c "Set :CFBundleExecutable Codex" \
+  "$OUT/Codex.app/Contents/Info.plist"
+
+# Remove ElectronAsarIntegrity (references default_app.asar)
+/usr/libexec/PlistBuddy -c "Delete :ElectronAsarIntegrity" "$OUT/Codex.app/Contents/Info.plist" 2>/dev/null || true
 
 echo "Done: $OUT/Codex.app"
