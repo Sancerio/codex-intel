@@ -91,6 +91,7 @@ Or use the helper script:
 
 **App opens a blank window**
 - Make sure the patch applied (installer output should say “patched main.js”).
+- If patching fails with a pattern error, use the Codex CLI fallback shown by `install.sh` to update patch logic in `install.sh`, then rerun the installer.
 
 **Native module load error**
 - Delete `codex-app/` and rerun `install.sh`.
