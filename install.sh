@@ -91,12 +91,14 @@ def patch_dev_server_guard(src: str) -> str:
         window_start = max(0, m2.start() - 400)
         window_end = min(len(src), m2.end() + 400)
         window = src[window_start:window_end]
-        needle = '!F.app.isPackaged'
-        idx = window.rfind(needle)
-        if idx == -1:
+        guard_matches = list(re.finditer(r'!([A-Za-z_$][\\w$]*)\\.app\\.isPackaged', window))
+        if not guard_matches:
             continue
-        abs_idx = window_start + idx
-        replacement = '!F.app.isPackaged&&process.env.ELECTRON_RENDERER_URL'
+        mguard = guard_matches[-1]
+        var = mguard.group(1)
+        abs_idx = window_start + mguard.start()
+        needle = f'!{var}.app.isPackaged'
+        replacement = f'!{var}.app.isPackaged&&process.env.ELECTRON_RENDERER_URL'
         if src[abs_idx:abs_idx+len(replacement)] == replacement:
             return src
         return src[:abs_idx] + replacement + src[abs_idx+len(needle):]
