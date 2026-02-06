@@ -83,7 +83,7 @@ def patch_dev_server_guard(src: str) -> str:
     patterns = []
     if fn:
         patterns.extend([fr'new URL\\({fn}\\(\\)\\)', fr'new URL\\({fn}\\)'])
-    patterns.extend([r'new URL\\(_B\\(\\)\\)', r'new URL\\(_B\\)'])
+    patterns.extend([r'new URL\\(_B\\(\\)\\)', r'new URL\\(_B\\)', r'new URL\\(AB\\(\\)\\)'])
     for pat in patterns:
         m2 = re.search(pat, src)
         if not m2:
@@ -91,12 +91,17 @@ def patch_dev_server_guard(src: str) -> str:
         window_start = max(0, m2.start() - 400)
         window_end = min(len(src), m2.end() + 400)
         window = src[window_start:window_end]
-        needle = '!F.app.isPackaged'
+        # Try to find the isPackaged check with any single-letter variable (F, U, etc.)
+        needle_match = re.search(r'!([A-Z])\\.app\\.isPackaged', window)
+        if not needle_match:
+            continue
+        var_letter = needle_match.group(1)
+        needle = f'!{var_letter}.app.isPackaged'
         idx = window.rfind(needle)
         if idx == -1:
             continue
         abs_idx = window_start + idx
-        replacement = '!F.app.isPackaged&&process.env.ELECTRON_RENDERER_URL'
+        replacement = f'!{var_letter}.app.isPackaged&&process.env.ELECTRON_RENDERER_URL'
         if src[abs_idx:abs_idx+len(replacement)] == replacement:
             return src
         return src[:abs_idx] + replacement + src[abs_idx+len(needle):]
@@ -140,6 +145,13 @@ NODE_GYP="$REBUILD/node_modules/.bin/node-gyp"
 
 # better-sqlite3 (Electron)
 cd "$REBUILD/node_modules/better-sqlite3"
+
+# Set SDK paths for C++ compilation
+SDK_PATH=$(xcrun --show-sdk-path)
+export SDKROOT="$SDK_PATH"
+export CXXFLAGS="-isysroot $SDK_PATH -I$SDK_PATH/usr/include/c++/v1 -I$SDK_PATH/usr/include"
+export LDFLAGS="-isysroot $SDK_PATH"
+
 "$NODE_GYP" rebuild --release --runtime=electron --target="$ELECTRON_VERSION" --arch=x64 --dist-url=https://electronjs.org/headers
 
 # node-pty (Electron)
