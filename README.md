@@ -91,6 +91,7 @@ Or use the helper script:
 
 **App opens a blank window**
 - Make sure the patch applied (installer output should say “patched main.js”).
+- Try setting CODEX_CLI_PATH (`export CODEX_CLI_PATH`) to the absolute path to the codex binary
 
 **Native module load error**
 - Delete `codex-app/` and rerun `install.sh`.
