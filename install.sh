@@ -16,6 +16,41 @@ fi
 
 mkdir -p "$WORK" "$OUT"
 
+resolve_x64_codex_cli() {
+  local codex_cmd="$1"
+  local resolved=""
+  # Resolve through npm shims/symlinks so we can inspect the real file on disk.
+  if ! resolved="$(python3 - "$codex_cmd" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]))
+PY
+)"; then
+    return 1
+  fi
+
+  local candidates=("$resolved")
+  # npm launchers are often scripts/symlinks (not always *.js), so always
+  # try the vendored x86_64 binary path when we can derive a package root.
+  local package_root
+  if package_root="$(cd "$(dirname "$resolved")/.." 2>/dev/null && pwd)"; then
+    candidates+=("$package_root/vendor/x86_64-apple-darwin/codex/codex")
+  fi
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    [[ -f "$candidate" ]] || continue
+    # Ensure the bundled binary we copy is executable on Intel hosts.
+    if file "$candidate" | grep -q "x86_64"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 # Fetch DMG
 DMG_PATH="$WORK/Codex.dmg"
 if [[ "$DMG_SRC" =~ ^https?:// ]]; then
@@ -163,6 +198,23 @@ npm init -y >/dev/null
 npm i --no-save better-sqlite3@12.4.6 node-pty@1.1.0 node-gyp@12.2.0
 NODE_GYP="$REBUILD/node_modules/.bin/node-gyp"
 
+# Set SDK flags when available; some setups need explicit SDK include paths.
+if command -v xcrun >/dev/null 2>&1; then
+  if SDK_PATH="$(xcrun --show-sdk-path 2>/dev/null)"; then
+    if [[ -n "$SDK_PATH" && -d "$SDK_PATH" ]]; then
+      export SDKROOT="$SDK_PATH"
+      export CXXFLAGS="${CXXFLAGS:-} -isysroot \"$SDK_PATH\" -I\"$SDK_PATH\"/usr/include/c++/v1 -I\"$SDK_PATH\"/usr/include"
+      export LDFLAGS="${LDFLAGS:-} -isysroot \"$SDK_PATH\""
+    else
+      echo "Warning: xcrun returned an empty or invalid SDK path ('$SDK_PATH'); continuing without explicit SDK flags."
+    fi
+  else
+    echo "Warning: xcrun is installed but failed to resolve SDK path; continuing without explicit SDK flags."
+  fi
+else
+  echo "Warning: xcrun not found; continuing without explicit SDK flags."
+fi
+
 # better-sqlite3 (Electron)
 cd "$REBUILD/node_modules/better-sqlite3"
 "$NODE_GYP" rebuild --release --runtime=electron --target="$ELECTRON_VERSION" --arch=x64 --dist-url=https://electronjs.org/headers
@@ -210,11 +262,18 @@ cp -R "$WORK/Codex.app/Contents/Resources/app.asar.unpacked" "$OUT/Codex.app/Con
 cp -R "$WORK/Codex.app/Contents/Resources/native" "$OUT/Codex.app/Contents/Resources/"
 
 # Copy Codex CLI (optional)
-CODEX_BIN="$(command -v codex || true)"
-if [[ -n "$CODEX_BIN" ]]; then
-  if ! install -m 755 "$CODEX_BIN" "$OUT/Codex.app/Contents/Resources/codex"; then
-    echo "Warning: failed to copy Codex CLI into app bundle from $CODEX_BIN (continuing)."
+CODEX_CMD="$(type -P codex 2>/dev/null || true)"
+if [[ -n "$CODEX_CMD" && -x "$CODEX_CMD" ]]; then
+  # Resolve to a concrete x86_64 binary when PATH points to a launcher script.
+  if CODEX_BIN="$(resolve_x64_codex_cli "$CODEX_CMD")"; then
+    if ! install -m 755 "$CODEX_BIN" "$OUT/Codex.app/Contents/Resources/codex"; then
+      echo "Warning: failed to copy x86_64 Codex CLI into app bundle from $CODEX_BIN (continuing)."
+    fi
+  else
+    echo "Warning: found codex at $CODEX_CMD but could not resolve an x86_64 binary; leaving bundled CLI unchanged."
   fi
+else
+  echo "Warning: codex not found in PATH; leaving bundled CLI unchanged."
 fi
 
 # Icon + Info.plist
