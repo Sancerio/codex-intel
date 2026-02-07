@@ -55,7 +55,8 @@ fi
 "$ASAR_CMD" extract "$WORK/Codex.app/Contents/Resources/app.asar" "$ASAR_EXTRACT"
 
 # Patch main entry (avoid dev server; guard markAppQuitting)
-python3 - <<PY
+PATCH_LOG="$WORK/patch-main.log"
+if ! python3 - <<PY 2>"$PATCH_LOG"
 from pathlib import Path
 import re
 
@@ -129,6 +130,28 @@ else:
 target.write_text(text)
 print(f"patched {target}")
 PY
+then
+  echo "Error: automatic patching failed for this Codex build."
+  if command -v codex >/dev/null 2>&1; then
+    cat <<EOF
+Fallback: use Codex CLI to adapt install.sh patch logic for this specific DMG build, then rerun.
+
+Run:
+codex exec -C "$ROOT" --sandbox workspace-write 'Update install.sh patch logic so it still patches the current .vite/build main entry from this DMG. Keep behavior the same except:
+1) only attempt dev-server URL logic when process.env.ELECTRON_RENDERER_URL is set
+2) guard any markAppQuitting() call with a typeof/object existence check.
+Do not change unrelated installer behavior.'
+
+Then rerun:
+./install.sh "$DMG_SRC"
+EOF
+  else
+    echo "Install Codex CLI for guided fallback patching: npm i -g @openai/codex"
+  fi
+  echo "Patch error details:"
+  cat "$PATCH_LOG"
+  exit 1
+fi
 
 # Rebuild native modules for Electron x64
 REBUILD="$WORK/rebuild"
