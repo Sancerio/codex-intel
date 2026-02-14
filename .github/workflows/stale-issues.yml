@@ -1,0 +1,35 @@
+name: Issue Stale Policy
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark and close stale issues
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-issue-stale: 7
+          days-before-issue-close: 14
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          only-issue-labels: awaiting-reply
+          exempt-issue-labels: security,confirmed-bug,pinned,help wanted,good first issue
+          stale-issue-label: stale
+          labels-to-remove-when-stale: awaiting-reply
+          labels-to-remove-when-unstale: stale
+          labels-to-add-when-unstale: needs-triage
+          remove-stale-when-updated: true
+          stale-issue-message: >
+            Marking as stale because we are waiting on reporter follow-up.
+            Reply with requested details and we will continue.
+          close-issue-message: >
+            Closing as stale due to no follow-up. Comment anytime to reopen.
+          operations-per-run: 200

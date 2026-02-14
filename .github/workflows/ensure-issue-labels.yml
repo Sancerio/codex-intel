@@ -1,0 +1,53 @@
+name: Ensure Issue Labels
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  ensure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update issue labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const labels = [
+              { name: "awaiting-reply", color: "FBCA04", description: "Waiting for reporter response" },
+              { name: "stale", color: "8B949E", description: "No recent reporter activity" },
+              { name: "needs-triage", color: "5319E7", description: "Needs maintainer triage" },
+              { name: "confirmed-bug", color: "D73A4A", description: "Confirmed issue with clear reproduction" },
+              { name: "security", color: "B60205", description: "Security-related issue" },
+              { name: "pinned", color: "1D76DB", description: "Maintainer-pinned issue" },
+            ];
+
+            for (const label of labels) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: label.name });
+                await github.rest.issues.updateLabel({
+                  owner,
+                  repo,
+                  name: label.name,
+                  new_name: label.name,
+                  color: label.color,
+                  description: label.description,
+                });
+              } catch (error) {
+                if (error.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner,
+                    repo,
+                    name: label.name,
+                    color: label.color,
+                    description: label.description,
+                  });
+                } else {
+                  throw error;
+                }
+              }
+            }
