@@ -18,6 +18,11 @@ jobs:
             const repo = context.repo.repo;
 
             const labels = [
+              // GitHub defaults we rely on in docs/policy and want to restore in forks if removed.
+              { name: "bug", color: "D73A4A", description: "Confirmed malfunction report" },
+              { name: "question", color: "D876E3", description: "Clarification or support request" },
+              { name: "help wanted", color: "008672", description: "Maintainer welcomes external help" },
+              { name: "good first issue", color: "7057FF", description: "Good entry-point issue for new contributors" },
               { name: "awaiting-reply", color: "FBCA04", description: "Waiting for reporter response" },
               { name: "stale", color: "8B949E", description: "No recent reporter activity" },
               { name: "needs-triage", color: "5319E7", description: "Needs maintainer triage" },

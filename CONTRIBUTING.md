@@ -28,11 +28,15 @@ Core issue labels used by maintainers:
 - `needs-triage`: Issue needs maintainer classification.
 - `bug`: Confirmed malfunction report.
 - `question`: Clarification/support request.
+- `help wanted`: Maintainer welcomes external help.
+- `good first issue`: Good starter task for new contributors.
 - `awaiting-reply`: Waiting on reporter follow-up.
 - `stale`: No follow-up activity after waiting period.
 - `confirmed-bug`: Reproduced/confirmed by maintainer.
 - `security`: Security-sensitive issue.
 - `pinned`: Maintainer-pinned priority/context issue.
+
+`bug`, `question`, `help wanted`, and `good first issue` are GitHub defaults; the label bootstrap workflow also ensures they exist for repos/forks where defaults were renamed or removed.
 
 ## Stale Policy
 
