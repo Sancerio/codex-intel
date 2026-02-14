@@ -53,6 +53,12 @@ chmod +x install.sh
 ./install.sh /path/to/Codex.dmg
 ```
 
+Verbose native rebuild output:
+
+```bash
+./install.sh -v /path/to/Codex.dmg
+```
+
 ### Option B: Auto‑download DMG
 
 If you have the DMG URL, you can pass it directly:
@@ -86,6 +92,9 @@ Or use the helper script:
 - Auto‑update is disabled (Sparkle is macOS‑only and removed).
 - The app may show warnings about `url.parse` deprecation — safe to ignore.
 - The app expects the Codex CLI on your PATH. If you installed it globally, that’s already done.
+- During native rebuild, upstream modules can emit compiler warnings; this is expected as long as rebuild finishes with `Rebuild OK`.
+- Native rebuild output is saved under `work/logs/` by default (for example `work/logs/rebuild-better-sqlite3.log`).
+- To stream full native rebuild output live, run with `./install.sh -v ...` (or set `NATIVE_REBUILD_VERBOSE=1`).
 
 ## Troubleshooting
 
@@ -95,6 +104,11 @@ Or use the helper script:
 
 **Native module load error**
 - Delete `codex-app/` and rerun `install.sh`.
+
+**Compiler warnings during install**
+- Warnings from `better-sqlite3` and `node-pty` can be normal with newer toolchains.
+- Treat the run as successful if installer output shows `Rebuild OK: better-sqlite3` and `Rebuild OK: node-pty`.
+- If rebuild fails, inspect `work/logs/rebuild-*.log`.
 
 **Gatekeeper warning**
 - Right‑click the app → Open (once) to allow it.
