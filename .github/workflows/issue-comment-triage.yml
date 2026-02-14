@@ -1,0 +1,54 @@
+name: Issue Comment Triage
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  retag-on-reporter-reply:
+    if: >-
+      ${{
+        !github.event.issue.pull_request &&
+        !contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Move issue back to triage when reporter replies
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.issue.number;
+
+            const labels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const current = new Set(labels.map((l) => l.name));
+            const transient = new Set(["awaiting-reply", "stale", "needs-triage"]);
+            const hasExistingTriagedLabel = labels.some((l) => !transient.has(l.name));
+
+            for (const label of ["awaiting-reply", "stale"]) {
+              if (!current.has(label)) continue;
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: label });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+
+            if (!hasExistingTriagedLabel && !current.has("needs-triage")) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number,
+                labels: ["needs-triage"],
+              });
+            }
