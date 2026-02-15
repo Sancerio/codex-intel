@@ -8,13 +8,72 @@ ELECTRON_VERSION="40.0.0"
 ELECTRON_ZIP="electron-v${ELECTRON_VERSION}-darwin-x64.zip"
 ELECTRON_URL="https://github.com/electron/electron/releases/download/v${ELECTRON_VERSION}/${ELECTRON_ZIP}"
 
-DMG_SRC="${1:-}"
+NATIVE_REBUILD_VERBOSE="${NATIVE_REBUILD_VERBOSE:-0}"
+DMG_SRC=""
+usage() {
+  cat <<EOF
+Usage: $0 [-h|--help] [-v|--verbose] /path/to/Codex.dmg
+       $0 [-h|--help] [-v|--verbose] https://.../Codex.dmg
+
+Options:
+  -h, --help      Show this help message and exit.
+  -v, --verbose   Enable verbose native rebuild output.
+                  (Alternatively, set NATIVE_REBUILD_VERBOSE=1.)
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -v|--verbose)
+      NATIVE_REBUILD_VERBOSE=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      usage
+      exit 1
+      ;;
+    *)
+      if [[ -n "$DMG_SRC" ]]; then
+        echo "Error: multiple DMG sources provided."
+        usage
+        exit 1
+      fi
+      DMG_SRC="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$DMG_SRC" && $# -gt 0 ]]; then
+  if [[ $# -gt 1 ]]; then
+    echo "Error: multiple DMG sources provided."
+    usage
+    exit 1
+  fi
+  DMG_SRC="$1"
+elif [[ -n "$DMG_SRC" && $# -gt 0 ]]; then
+  echo "Error: multiple DMG sources provided."
+  usage
+  exit 1
+fi
+
 if [[ -z "$DMG_SRC" ]]; then
-  echo "Usage: $0 /path/to/Codex.dmg OR $0 https://.../Codex.dmg"
+  usage
   exit 1
 fi
 
 mkdir -p "$WORK" "$OUT"
+LOG_DIR="$WORK/logs"
+mkdir -p "$LOG_DIR"
 
 resolve_x64_codex_cli() {
   local codex_cmd="$1"
@@ -215,13 +274,49 @@ else
   echo "Warning: xcrun not found; continuing without explicit SDK flags."
 fi
 
-# better-sqlite3 (Electron)
-cd "$REBUILD/node_modules/better-sqlite3"
-"$NODE_GYP" rebuild --release --runtime=electron --target="$ELECTRON_VERSION" --arch=x64 --dist-url=https://electronjs.org/headers
+run_native_rebuild() {
+  local module="$1"
+  local log_file="$LOG_DIR/rebuild-${module}.log"
+  _run_node_gyp_rebuild() {
+    (
+      cd "$REBUILD/node_modules/$module"
+      "$NODE_GYP" rebuild --release --runtime=electron --target="$ELECTRON_VERSION" --arch=x64 --dist-url=https://electronjs.org/headers
+    )
+  }
 
-# node-pty (Electron)
-cd "$REBUILD/node_modules/node-pty"
-"$NODE_GYP" rebuild --release --runtime=electron --target="$ELECTRON_VERSION" --arch=x64 --dist-url=https://electronjs.org/headers
+  echo "Rebuilding $module for Electron x64..."
+  echo "Note: compiler warnings from upstream native modules are expected and non-fatal."
+  if [[ "$NATIVE_REBUILD_VERBOSE" == "1" ]]; then
+    echo "Verbose native rebuild enabled (-v/--verbose or NATIVE_REBUILD_VERBOSE=1)."
+  else
+    echo "Streaming disabled; full output is written to $log_file."
+  fi
+
+  local rebuild_rc=0
+  if [[ "$NATIVE_REBUILD_VERBOSE" == "1" ]]; then
+    _run_node_gyp_rebuild 2>&1 | tee "$log_file" || rebuild_rc=$?
+  else
+    _run_node_gyp_rebuild >"$log_file" 2>&1 || rebuild_rc=$?
+  fi
+
+  if [[ "$rebuild_rc" -ne 0 ]]; then
+    echo "Error: rebuild failed for $module."
+    echo "Full log: $log_file"
+    echo "Tip: rerun with -v/--verbose (or NATIVE_REBUILD_VERBOSE=1) to stream build output live."
+    exit 1
+  fi
+
+  local warning_count
+  warning_count="$(grep -c ' warning:' "$log_file" || true)"
+  if [[ "$warning_count" -gt 0 ]]; then
+    echo "Rebuild OK: $module ($warning_count warning line(s)). Log: $log_file"
+  else
+    echo "Rebuild OK: $module (no compiler warnings). Log: $log_file"
+  fi
+}
+
+run_native_rebuild "better-sqlite3"
+run_native_rebuild "node-pty"
 
 # Inject rebuilt modules into asar extract
 mkdir -p "$ASAR_EXTRACT/node_modules/better-sqlite3/build/Release"
