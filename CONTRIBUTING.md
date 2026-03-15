@@ -4,7 +4,7 @@ Thanks for helping improve `codex-intel` - the Intel macOS port of [Codex App](h
 
 ## Scope
 
-This repo provides a local installer that converts an official Codex DMG into an Intel-compatible Electron app bundle.  
+This repo provides a local installer that converts an official Codex app bundle or DMG into an Intel-compatible Electron app bundle.  
 We do not distribute OpenAI DMGs or app binaries in this repository.
 
 ## What To Contribute
@@ -17,8 +17,8 @@ We do not distribute OpenAI DMGs or app binaries in this repository.
 
 ## Development
 
-- Run `./install.sh /path/to/Codex.dmg` on Intel macOS.
-- Validate by launching `./codex-app/Codex.app/Contents/MacOS/Electron --no-sandbox`.
+- Run `./install.sh /path/to/Codex*.app` or `./install.sh /path/to/Codex*.dmg` on an Intel Mac
+- Test by launching the generated app bundle under `./codex-app/`, for example `./codex-app/Codex.app/Contents/MacOS/Electron --no-sandbox`
 - Keep changes focused and easy to review.
 
 ## Issue Labels And Triage
@@ -62,4 +62,4 @@ Repository workflows implement this policy:
 - Include validation steps/output when possible.
 - Keep commits and PR scope tight.
 - Use Conventional Commits style for commit messages (for example: `fix(installer): guard SDK path detection`).
-- Do not include built artifacts, DMGs, or `Codex.app` outputs.
+- Do not include built artifacts, DMGs, or generated app bundles in PRs.

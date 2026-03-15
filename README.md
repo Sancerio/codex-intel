@@ -4,7 +4,7 @@
 ![GitHub stars](https://img.shields.io/github/stars/Sancerio/codex-intel?style=flat)
 ![GitHub license](https://img.shields.io/github/license/Sancerio/codex-intel)
 
-Run OpenAI Codex Desktop on Intel macOS by converting the official macOS DMG into an x86_64 Electron app bundle.
+Run OpenAI Codex Desktop on Intel macOS by converting the official macOS app bundle or DMG into an x86_64 Electron app bundle. Stable and Beta builds are both supported.
 
 > This is an unofficial community project. Codex Desktop is a product of OpenAI.
 
@@ -14,12 +14,12 @@ Learn more about Codex: https://openai.com/codex/
 
 The installer:
 
-1. Extracts the macOS `.dmg`
+1. Takes a local `.app` bundle or extracts the macOS `.dmg`
 2. Pulls out `app.asar` (the Electron app)
 3. Rebuilds native modules (`node-pty`, `better-sqlite3`) for Electron x64
 4. Disables macOS‑only Sparkle auto‑update
 5. Downloads Electron v40 for darwin‑x64
-6. Repackages everything into a runnable `Codex.app`
+6. Repackages everything into a runnable app bundle with the same name as the original DMG app, such as `Codex.app` or `Codex (Beta).app`
 7. Applies a small patch so it doesn’t try to connect to a Vite dev server
 
 ## Prerequisites
@@ -44,13 +44,19 @@ npm i -g @openai/codex
 
 ## Installation
 
-### Option A: Provide your own DMG
+### Option A: Provide your own app bundle or DMG
 
 ```bash
 git clone https://github.com/<your-user>/codex-intel.git
 cd codex-intel
 chmod +x install.sh
-./install.sh /path/to/Codex.dmg
+./install.sh /path/to/Codex*.app
+```
+
+Or:
+
+```bash
+./install.sh /path/to/Codex*.dmg
 ```
 
 Verbose native rebuild output:
@@ -64,7 +70,7 @@ Verbose native rebuild output:
 If you have the DMG URL, you can pass it directly:
 
 ```bash
-./install.sh https://example.com/Codex.dmg
+./install.sh https://example.com/Codex*.dmg
 ```
 
 ## Usage
@@ -72,7 +78,7 @@ If you have the DMG URL, you can pass it directly:
 The installer creates:
 
 ```
-./codex-app/Codex.app
+./codex-app/<original app name>.app
 ```
 
 Launch it from Finder or:
@@ -81,11 +87,50 @@ Launch it from Finder or:
 ./codex-app/Codex.app/Contents/MacOS/Electron --no-sandbox
 ```
 
+For Beta builds, that path is typically:
+
+```bash
+./codex-app/Codex\ \(Beta\).app/Contents/MacOS/Electron --no-sandbox
+```
+
 Or use the helper script:
 
 ```bash
 ./start.sh
 ```
+
+## Performance (Intel Fan Noise / Idle Heat)
+
+This repo now applies a low-power window patch during `install.sh`:
+
+- forces opaque windows
+- disables liquid-glass effects
+- applies an aggressive renderer performance patch:
+  - disables renderer Sentry init
+  - bypasses Shiki highlight provider wrapper
+  - disables non-essential telemetry/notification hooks
+
+This reduces idle GPU load on many Intel Macs.
+
+Tradeoffs in aggressive mode:
+
+- desktop notifications/badge updates may be reduced
+- some telemetry diagnostics are disabled
+- code highlighting behavior may be simpler in chat output
+
+If you already built an app in `codex-app/`, patch it in place without reinstalling:
+
+```bash
+./optimize-power.sh
+```
+
+Optional custom app path:
+
+```bash
+./optimize-power.sh /path/to/Codex*.app
+```
+
+`./start.sh` launches the newest app bundle under `codex-app/`, so a fresh Beta install will be picked automatically even if older stable bundles are still present.
 
 ## Notes
 
