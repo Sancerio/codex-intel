@@ -368,6 +368,18 @@ def patch_low_power_visual_effects(src: str) -> str:
 
 text = patch_low_power_visual_effects(text)
 
+def patch_app_server_analytics_default(src: str) -> str:
+    updated, count = re.subn(
+        r'args:\["app-server","--analytics-default-enabled"\]',
+        'args:["app-server"]',
+        src,
+    )
+    if count == 0:
+        print("app-server analytics patch pattern not found; skipping")
+    return updated
+
+text = patch_app_server_analytics_default(text)
+
 target.write_text(text)
 print(f"patched {target}")
 

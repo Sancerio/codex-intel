@@ -174,6 +174,14 @@ else:
     if count == 0:
         raise SystemExit("unable to patch getLiquidGlassSupport in main bundle")
 
+text, analytics_count = re.subn(
+    r'args:\["app-server","--analytics-default-enabled"\]',
+    'args:["app-server"]',
+    text,
+)
+if analytics_count == 0:
+    print("app-server analytics patch pattern not found; skipping")
+
 target.write_text(text)
 print(f"patched {target}")
 
