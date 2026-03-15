@@ -17,6 +17,7 @@ APP_PLIST_NAME=""
 APP_BUNDLE_IDENTIFIER=""
 APP_VERSION=""
 APP_BUILD_VERSION=""
+MOUNT_POINT=""
 NATIVE_REBUILD_VERBOSE="${NATIVE_REBUILD_VERBOSE:-0}"
 SOURCE_INPUT=""
 normalize_source_input_path() {
@@ -138,6 +139,18 @@ PY
 }
 SESSION_DIR="$(mktemp -d "$WORK/install.XXXXXX")"
 
+cleanup() {
+  if [[ -n "$MOUNT_POINT" ]]; then
+    hdiutil detach "$MOUNT_POINT" >/dev/null 2>&1 || true
+  fi
+
+  if [[ -n "$SESSION_DIR" && -d "$SESSION_DIR" ]]; then
+    rm -rf "$SESSION_DIR"
+  fi
+}
+
+trap cleanup EXIT
+
 read_plist_key() {
   local plist_path="$1"
   local key="$2"
@@ -153,22 +166,39 @@ force_remove_path() {
 }
 
 install_to_system_applications() {
+  local staged_app_path="$SYSTEM_APPS_DIR/.${APP_BUNDLE_NAME}.staged.$$"
+  local previous_app_path="$SYSTEM_APPS_DIR/.${APP_BUNDLE_NAME}.previous.$$"
+
   if ! mkdir -p "$SYSTEM_APPS_DIR" 2>/dev/null; then
     echo "Warning: unable to create $SYSTEM_APPS_DIR; leaving app at $OUT_APP_PATH"
     return 1
   fi
 
-  if [[ -e "$SYSTEM_APP_PATH" ]] && ! force_remove_path "$SYSTEM_APP_PATH"; then
-    echo "Warning: unable to replace existing app at $SYSTEM_APP_PATH; leaving app at $OUT_APP_PATH"
+  force_remove_path "$staged_app_path" || true
+  force_remove_path "$previous_app_path" || true
+
+  if ! cp -R "$OUT_APP_PATH" "$staged_app_path" 2>/dev/null; then
+    force_remove_path "$staged_app_path" || true
+    echo "Warning: unable to stage app at $SYSTEM_APPS_DIR; leaving app at $OUT_APP_PATH"
     return 1
   fi
 
-  if ! cp -R "$OUT_APP_PATH" "$SYSTEM_APP_PATH" 2>/dev/null; then
-    force_remove_path "$SYSTEM_APP_PATH" || true
+  if [[ -e "$SYSTEM_APP_PATH" ]] && ! mv "$SYSTEM_APP_PATH" "$previous_app_path" 2>/dev/null; then
+    force_remove_path "$staged_app_path" || true
+    echo "Warning: unable to preserve existing app at $SYSTEM_APP_PATH; leaving app at $OUT_APP_PATH"
+    return 1
+  fi
+
+  if ! mv "$staged_app_path" "$SYSTEM_APP_PATH" 2>/dev/null; then
+    if [[ -e "$previous_app_path" ]]; then
+      mv "$previous_app_path" "$SYSTEM_APP_PATH" 2>/dev/null || true
+    fi
+    force_remove_path "$staged_app_path" || true
     echo "Warning: unable to copy app to $SYSTEM_APP_PATH; leaving app at $OUT_APP_PATH"
     return 1
   fi
 
+  force_remove_path "$previous_app_path" || true
   return 0
 }
 
@@ -207,8 +237,10 @@ PY
 
   SOURCE_APP_PATH="$(find "$MOUNT_POINT" -maxdepth 1 -type d -name '*.app' -print | sort | head -n 1)"
   if [[ -z "$SOURCE_APP_PATH" ]]; then
+    local_mount_point="$MOUNT_POINT"
     hdiutil detach "$MOUNT_POINT" || true
-    echo "Error: no .app bundle found at $MOUNT_POINT"
+    MOUNT_POINT=""
+    echo "Error: no .app bundle found at $local_mount_point"
     exit 1
   fi
 fi
@@ -221,8 +253,9 @@ SYSTEM_APP_PATH="$SYSTEM_APPS_DIR/$APP_BUNDLE_NAME"
 force_remove_path "$WORK_APP_PATH"
 cp -R "$SOURCE_APP_PATH" "$WORK_APP_PATH"
 chmod -R u+w "$WORK_APP_PATH"
-if [[ -n "${MOUNT_POINT:-}" ]]; then
+if [[ -n "$MOUNT_POINT" ]]; then
   hdiutil detach "$MOUNT_POINT"
+  MOUNT_POINT=""
 fi
 
 SOURCE_INFO_PLIST="$WORK_APP_PATH/Contents/Info.plist"
