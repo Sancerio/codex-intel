@@ -19,6 +19,21 @@ APP_VERSION=""
 APP_BUILD_VERSION=""
 NATIVE_REBUILD_VERBOSE="${NATIVE_REBUILD_VERBOSE:-0}"
 SOURCE_INPUT=""
+normalize_source_input_path() {
+  local input_path="$1"
+
+  if [[ "$input_path" =~ ^https?:// ]]; then
+    printf '%s\n' "$input_path"
+    return
+  fi
+
+  while [[ "$input_path" == */ && "$input_path" != "/" ]]; do
+    input_path="${input_path%/}"
+  done
+
+  printf '%s\n' "$input_path"
+}
+
 usage() {
   cat <<EOF
 Usage: $0 [-h|--help] [-v|--verbose] /path/to/Codex*.app
@@ -81,6 +96,8 @@ if [[ -z "$SOURCE_INPUT" ]]; then
   exit 1
 fi
 
+SOURCE_INPUT="$(normalize_source_input_path "$SOURCE_INPUT")"
+
 mkdir -p "$WORK" "$OUT"
 LOG_DIR="$WORK/logs"
 mkdir -p "$LOG_DIR"
@@ -131,8 +148,28 @@ force_remove_path() {
   local target_path="$1"
   if [[ -e "$target_path" ]]; then
     chmod -R u+w "$target_path" 2>/dev/null || true
-    rm -rf "$target_path"
+    rm -rf "$target_path" 2>/dev/null || return 1
   fi
+}
+
+install_to_system_applications() {
+  if ! mkdir -p "$SYSTEM_APPS_DIR" 2>/dev/null; then
+    echo "Warning: unable to create $SYSTEM_APPS_DIR; leaving app at $OUT_APP_PATH"
+    return 1
+  fi
+
+  if [[ -e "$SYSTEM_APP_PATH" ]] && ! force_remove_path "$SYSTEM_APP_PATH"; then
+    echo "Warning: unable to replace existing app at $SYSTEM_APP_PATH; leaving app at $OUT_APP_PATH"
+    return 1
+  fi
+
+  if ! cp -R "$OUT_APP_PATH" "$SYSTEM_APP_PATH" 2>/dev/null; then
+    force_remove_path "$SYSTEM_APP_PATH" || true
+    echo "Warning: unable to copy app to $SYSTEM_APP_PATH; leaving app at $OUT_APP_PATH"
+    return 1
+  fi
+
+  return 0
 }
 
 SOURCE_APP_PATH=""
@@ -583,11 +620,9 @@ if [[ -n "$APP_BUILD_VERSION" ]]; then
   plutil -replace CFBundleVersion -string "$APP_BUILD_VERSION" "$OUT_APP_PATH/Contents/Info.plist"
 fi
 
-# Install to /Applications
-mkdir -p "$SYSTEM_APPS_DIR"
-if [[ -d "$SYSTEM_APP_PATH" ]]; then
-  force_remove_path "$SYSTEM_APP_PATH"
+# Install to /Applications when permitted.
+if install_to_system_applications; then
+  echo "Done: $SYSTEM_APP_PATH"
+else
+  echo "Done: $OUT_APP_PATH"
 fi
-cp -R "$OUT_APP_PATH" "$SYSTEM_APP_PATH"
-
-echo "Done: $SYSTEM_APP_PATH"
