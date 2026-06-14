@@ -6,6 +6,9 @@
 
 Run OpenAI Codex Desktop on Intel macOS by converting the official macOS app bundle or DMG into an x86_64 Electron app bundle. Stable and Beta builds are both supported.
 
+> [!IMPORTANT]
+> **OpenAI now ships official Intel (x86_64) macOS builds of Codex.** If you're setting up Codex Desktop today, grab the official build from <https://openai.com/codex/>. This project filled the gap for Intel Mac users *before* official support existed (45★ / 27 forks, with steady installs from the Codex community) and is kept here for reference.
+
 > This is an unofficial community project. Codex Desktop is a product of OpenAI.
 
 Learn more about Codex: https://openai.com/codex/
